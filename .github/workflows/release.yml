@@ -1,0 +1,60 @@
+# Attaches the downloads to a GitHub Release when a version tag (v0.0.9, …) is pushed, or
+# when a release is published from the GitHub UI. The notes are that version's section of
+# the change log (README.md for the latest, CHANGELOG.md once it has moved there). Safe to run twice for the same tag: assets are replaced.
+#   fieldopt-<v>.zip / .tar.gz  self-host bundle: docker compose up -d --build (Mac, Linux,
+#                               Windows with Docker), or the SQL + configs for a no-Docker install
+#   fieldopt-demo-<v>.zip       the in-browser demo as static files, for offline use
+# Actions are pinned to commit SHAs.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || github.ref_name }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+      - run: sh demo/build.sh
+      - name: Package
+        run: |
+          set -eu
+          V="${TAG#v}"
+          mkdir -p out "stage/fieldopt-$V"
+          cp -R docker-compose.yml Makefile LICENSE README.md CHANGELOG.md db deploy web "stage/fieldopt-$V/"
+          (cd stage && zip -qr "../out/fieldopt-$V.zip" "fieldopt-$V" && tar -czf "../out/fieldopt-$V.tar.gz" "fieldopt-$V")
+
+          mv demo/dist "stage/fieldopt-demo-$V"
+          cat > "stage/fieldopt-demo-$V/README.txt" <<EOF
+          FieldOpt $V, in-browser demo (Postgres compiled to WebAssembly). Nothing to install.
+          Browsers only run it over http, so serve this folder and open the address, e.g.:
+            python3 -m http.server 8090      then open http://localhost:8090
+          Same as https://demo.fieldopt.dev, without the internet.
+          EOF
+          (cd stage && zip -qr "../out/fieldopt-demo-$V.zip" "fieldopt-demo-$V")
+
+          (cd out && sha256sum * > SHA256SUMS)
+          awk -v v="$V" '$0 ~ "^#+ " v "( |$)" { f = 1; next } /^#/ && f { exit } f && !/^Older versions:/' README.md CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "FieldOpt $V" > notes.md
+      - name: Publish
+        run: |
+          set -eu
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" out/* --clobber
+          else
+            gh release create "$TAG" out/* --title "FieldOpt ${TAG#v}" --notes-file notes.md --verify-tag
+          fi
