@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>FieldOpt — live demo</title>
+	<meta name="description" content="The FieldOpt dispatch console running entirely in your browser: real Postgres, a simulated day, nothing to install.">
+	<meta property="og:title" content="FieldOpt — live demo">
+	<meta property="og:description" content="The dispatch console running entirely in your browser: real Postgres, a simulated day, nothing to install.">
+	<meta property="og:url" content="https://demo.fieldopt.dev">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="FieldOpt">
+	<meta property="og:image" content="https://demo.fieldopt.dev/og.jpg">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta property="og:image:alt" content="The FieldOpt dispatch console mid-day: technicians, jobs and the demo clock">
+	<meta name="twitter:card" content="summary_large_image">
+	<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+	<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+	<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+	<meta name="theme-color" content="#0b0f15">
+	<style>
+		html, body { margin: 0; height: 100%; background: #0b0f15; color: #97a3b3; font: 14px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+		#boot { display: grid; place-items: center; height: 100%; text-align: center; }
+		#boot small { display: block; margin-top: 8px; opacity: .6; }
+		iframe { border: 0; width: 100%; height: 100%; display: block; }
+	</style>
+</head>
+<body>
+	<div id="boot"><div><span id="status">Starting Postgres in your browser…</span><small>Everything runs on this device. Nothing is sent to a server.</small></div></div>
+	<script type="module">
+		import { PGlite } from "/vendor/pglite/index.js";
+
+		const status = (t) => document.getElementById("status").textContent = t;
+		const t0 = performance.now();
+
+		// The shim is installed before the database so a console request never meets a missing host.
+		const sw = await navigator.serviceWorker.register("/sw.js");
+		await navigator.serviceWorker.ready;
+
+		const db = await PGlite.create();
+		await db.exec("set timezone = 'UTC'; set app.is_demo = 'true';");
+		status("Installing FieldOpt…");
+		await db.exec(await (await fetch("/fieldopt.sql")).text());
+
+		// PostgREST resolves named args against the function signature; do the same.
+		const fns = new Map((await db.query(`
+			select p.proname as name, coalesce(p.proargnames, '{}') as args,
+				array(select format_type(t, null) from unnest(p.proargtypes::oid[]) t) as types,
+				format_type(p.prorettype, null) as ret
+			from pg_proc p where p.pronamespace = 'api'::regnamespace`)).rows.map(r => [r.name, r]));
+
+		function argsOf(req) {
+			const a = Object.fromEntries(new URLSearchParams(req.query));
+			if (req.body) Object.assign(a, req.type.includes("json")
+				? JSON.parse(req.body)
+				: Object.fromEntries(new URLSearchParams(req.body)));
+			return a;
+		}
+
+		async function call(name, args) {
+			const f = fns.get(name);
+			if (!f) return { status: 404, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: `api.${name} not found` }) };
+			const named = [], vals = [];
+			f.args.forEach((a, i) => {
+				if (a in args) { vals.push(args[a]); named.push(`${a} => $${vals.length}::${f.types[i]}`); }
+			});
+			try {
+				return await db.transaction(async (tx) => {
+					const v = (await tx.query(`select api.${name}(${named.join(", ")}) as v`, vals)).rows[0].v;
+					const h = (await tx.query("select current_setting('response.headers', true) as h")).rows[0].h;
+					const headers = Object.assign({}, ...(h ? JSON.parse(h) : []));
+					if (f.ret === "void") return { status: 204, headers, body: null };
+					const html = f.ret === '"text/html"';
+					headers["Content-Type"] = html ? "text/html; charset=utf-8" : "application/json";
+					return { status: 200, headers, body: html ? v : JSON.stringify(v) };
+				});
+			} catch (e) {
+				return { status: 400, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: e.message }) };
+			}
+		}
+
+		navigator.serviceWorker.onmessage = async (e) => {
+			const req = e.data;
+			const res = req.path === "/console" ? await call("shell", {}) : await call(req.path.slice(5), argsOf(req));
+			e.ports[0].postMessage(res);
+		};
+
+		// pg_cron's job in the server build: one tick per wall second.
+		setInterval(() => db.query("select api.sim_tick(1)"), 1000);
+
+		console.log(`fieldopt demo ready in ${(performance.now() - t0).toFixed(0)}ms`);
+		const frame = document.createElement("iframe");
+		frame.src = "/console";
+		document.getElementById("boot").replaceWith(frame);
+		window.fieldoptDb = db;
+	</script>
+</body>
+</html>

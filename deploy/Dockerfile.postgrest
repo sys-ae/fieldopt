@@ -1,0 +1,3 @@
+FROM postgrest/postgrest:v12.2.3
+COPY deploy/postgrest.conf /etc/postgrest.conf
+CMD ["postgrest", "/etc/postgrest.conf"]

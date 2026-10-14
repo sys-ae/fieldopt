@@ -1,34 +1,9 @@
+# The images only COPY db/, deploy/ and web/
 .git
-.venv
-venv
-env
-__pycache__
-*.pyc
-*.pyo
-*.pyd
-.pytest_cache
-.coverage
-htmlcov
-
-# Frontend build artifacts and deps — rebuilt inside image
-frontend/node_modules
-frontend/dist
-frontend/.vite
-frontend/src.bak
-
-node_modules
-
-# Editors / OS
-.vscode
-.idea
+.github
+assets
+demo
 .DS_Store
-*.swp
-
-# Local env / logs
 .env
 .env.local
 *.log
-logs
-
-# Docker artifacts
-postgres_data

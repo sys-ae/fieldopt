@@ -1,83 +1,14 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# Virtual environments
-.venv/
-venv/
-env/
-ENV/
-
-# Node / Frontend
-node_modules/
-frontend/dist/
-frontend/.vite/
-*.local
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-# NOTE: package-lock.json is intentionally NOT ignored — lockfiles must be committed
-
-# IDEs / Editors
-.vscode/*
-!.vscode/extensions.json
+# OS / editors
+.DS_Store
+.vscode/
 .idea/
 *.swp
-*.swo
-*.sw?
-*~
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
 
-# OS
-.DS_Store
-
-# Environment
+# Local env and logs
 .env
 .env.local
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-postgres_data/
-
-# Logs
 *.log
-logs/
 
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Analytics
-analytics/data/*
-!analytics/data/.gitkeep
-analytics/.Rhistory
-
-# Backups
-backup/
-
+# In-browser demo: fetched PGlite and the build output (demo/build.sh)
+demo/.cache/
+demo/dist/
