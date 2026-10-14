@@ -1,4 +1,4 @@
-> ⚠️ **WIP — full-Postgres rewrite branch (Path C).** This branch re-implements FieldOpt as *Postgres-as-platform*: PL/pgSQL functions serve the HTMX fragments and JSON via PostgREST, replacing the FastAPI backend. **Ported & verified:** the render surface (all fragments + map JSON), the assign/unassign write path, and the sim clock + controls (19 endpoints, matched against the FastAPI reference). **In progress:** the sim engine (auto-route + dispatch loop), the `/pg/` browser shell, and packaging (Docker + raw flavors). The docs below still describe the current FastAPI (Path B) app; they'll be rewritten when the rewrite lands.
+> **v0.0.9 — full-Postgres architecture (Path C).** FieldOpt now runs with no application server: PL/pgSQL functions render the HTMX fragments and JSON, PostgREST exposes them as RPC, and nginx serves the shell. The FastAPI/Python stack it replaced remains in git history (v0.0.8). Every ported surface was verified against that stack before it was retired — 11/11 HTML fragments and the JSON endpoints byte-identical after whitespace normalization, and auto-route decisions identical across all 50 jobs (same technician, distance to 9dp, travel time).
 
 ## Overview
 FieldOpt - v0.0.9<br>
@@ -41,9 +41,12 @@ An open-source field service management system. FieldOpt is an enterprise-grade 
 
 **Route Criteria & Management Areas** — Techs are assigned geographic zones; jobs carry route criteria for zone-aware dispatch
 
-**Enterprise Dispatch Console** — AG Grid-powered split-pane layout with right-click context menus, drag-and-drop assignment, multi-select batch operations, tech timeline, day picker, floating filter/search/personnel windows, and a detachable map popup for multi-monitor setups
+**Enterprise Dispatch Console** — Server-rendered HTMX split-pane layout with right-click context menus, drag-and-drop assignment, multi-select batch operations, tech timeline, day picker, floating filter/search/personnel windows, and a detachable map popup for multi-monitor setups
 
 ## Launch FieldOpt
+
+Try it first with nothing installed: **<https://demo.fieldopt.dev>** runs the whole console in
+your browser — the same SQL as a server install, on Postgres compiled to WebAssembly.
 
 ### Requirements
 
@@ -52,32 +55,58 @@ An open-source field service management system. FieldOpt is an enterprise-grade 
 ### Run
 
 ```bash
-make up      # regular (no demo, sim endpoints 404)
-make demo    # IS_DEMO=true, simulation engine active
-make down    # stop containers (DB volume kept)
-make clean   # stop + wipe DB volume (fresh seed next run)
-make logs    # tail app logs
+make up        # start postgres (pg_cron) + postgrest + nginx
 ```
 
-Single-container build (multi-stage `Dockerfile`: node → python). Compose runs `postgres` + `app` on port 8080.
+That is the whole install. A fresh database volume creates its own schema, installs the
+application and loads the demo day on first boot (`deploy/initdb.sh`), so there is no
+migration or seed step to run. Browse <http://localhost:8081>.
+
+```bash
+make demo      # enable the sim UI, then press Start Demo in the console
+make no-demo   # disable it again
+make pg-apply  # re-install the SQL after editing db/functions (dev loop)
+make pg-seed   # reload the demo day
+make pg-sync   # push web/ assets into nginx without an image rebuild
+make down      # stop containers (DB volume kept)
+make clean     # stop + wipe DB volume (next boot re-installs from scratch)
+make logs      # tail nginx + postgrest + postgres
+```
 
 #### Access
 
 | Service | URL |
 |---------|-----|
-| Dispatch Console | http://localhost:8080/ |
-| API | http://localhost:8080/api/v1 |
-| Swagger Docs | http://localhost:8080/docs |
-| ReDoc | http://localhost:8080/redoc |
+| Dispatch Console | http://localhost:8081/ |
+| RPC (PostgREST) | http://localhost:8081/rpc/ |
 
-`IS_DEMO=true` (set by `make demo`) enables the simulation engine and a daily 04:00 UTC reseed. Without it, `/simulation/*` returns 404 and the SimBar stays hidden.
+#### Architecture
+
+| Piece | Role |
+|-------|------|
+| `db/functions/` | PL/pgSQL — every fragment, every write path, the routing and sim engine |
+| `db/seeds/` | Demo data as SQL, dates relative to the run date |
+| `db/postgrest/` | The `api` schema, the `web_anon` role and its grants |
+| `web/` | Static assets only: `app.css`, `map.html`, vendored htmx/Leaflet |
+| `deploy/` | Standalone `nginx.conf` + `postgrest.conf`, the three images, and `initdb.sh` |
+| `demo/` | The in-browser demo: the same SQL on PGlite (WebAssembly Postgres), published to demo.fieldopt.dev |
+| `db/schema/` | Table + enum DDL. The only thing that defines the schema now |
+
+The page itself is `api.shell()` — Postgres renders the shell and the fragments inside it
+in one response. nginx proxies `/` there and otherwise only serves static files; there is no
+templating, no SSI, and no client-side URL mapping. Fragments and forms address `/rpc/*`
+directly.
+
+The demo clock runs on pg_cron inside the database (`db/functions/25_cron.sql`), scheduled
+once a second, alongside a 04:00 UTC reseed that keeps a long-running demo box fresh.
+`api.sim_tick()` is still an ordinary function, so if your Postgres lacks pg_cron — managed
+instances often do — skip that file and call it from any external scheduler instead.
 
 ## Routing
 ### Routing Modes
 
-- `standard` — Closest qualified tech
-- `load_balance` — Distributes workload across all techs
-- `standard_by_timeslot` — Considers time slots (future enhancement)
+- **Auto-Route** (`auto_route`) — assigns every pending job to the closest qualified tech
+- **Sim dispatch** (`ml_assign`) — scores each qualified tech by travel time plus predicted job duration, preferring techs who can arrive inside the customer window
 
 ### How It Works
 
@@ -85,9 +114,8 @@ The routing engine evaluates multiple factors to find the best technician for ea
 1. **Skill** — Technician must have all required skills
 2. **Route** — Job's route criteria must match one of the tech's assigned management areas
 3. **Time** — Technician must have time available in their shift
-4. **Capacity** — Won't exceed configurable max jobs per day
-5. **Distance** — Assigns closest qualified tech (haversine calculation)
-6. **Priority** — VIP and high-priority jobs routed first
+4. **Distance** — Assigns closest qualified tech (haversine calculation)
+5. **Priority** — Jobs are routed in priority order
 
 ### Job Evaluation
 
@@ -102,61 +130,84 @@ If any check fails, the dispatcher receives a warning with details but can overr
 | Key | Action |
 |-----|--------|
 | `R` | Refresh data |
-| `M` | Toggle map |
-| `T` | Toggle timeline |
-| `F` | Toggle display filter |
+| `/` | Open job search |
+| `F` | Open display filter |
 | `P` | Open personnel window |
-| `J` | Open job search |
-| `A` | Auto-route (with confirmation) |
+| `D` / `S` / `C` / `H` | Done / Start / Cancel / Hold the selected jobs |
+| `U` | Unassign the selected jobs |
 | `Ctrl/Cmd+A` | Select all in focused grid |
-| `Esc` | Close windows / context menus |
+| `Esc` | Clear selection, close modal / context menu |
 
 ## API
-### Key Endpoints
 
-#### Technicians
-- `POST /api/v1/technicians/` — Create technician
-- `GET /api/v1/technicians/` — List all (includes assigned/completed job counts, assigned routes)
-- `GET /api/v1/technicians/available` — Get available techs
-- `PATCH /api/v1/technicians/{id}/status` — Update status
-- `PATCH /api/v1/technicians/{id}/location` — Update location
-- `GET /api/v1/technicians/{id}/workload` — Get workload
-#### Jobs
-- `POST /api/v1/jobs/` — Create job (supports route_criteria)
-- `GET /api/v1/jobs/` — List all (supports `?scheduled_date=` filter, includes assigned tech)
-- `GET /api/v1/jobs/pending` — Get unassigned jobs
-- `GET /api/v1/jobs/summary` — Job counts by status (supports `?target_date=`)
-- `GET /api/v1/jobs/search/query` — Multi-criteria search (date range, tech, customer, status, type, route)
-- `POST /api/v1/jobs/{id}/start` — Start a job
-- `POST /api/v1/jobs/{id}/complete` — Complete a job
-- `POST /api/v1/jobs/{id}/cancel` — Cancel a job
-- `GET /api/v1/jobs/{id}/can-do/{tech_id}` — Full Job evaluation (skill, route, time, distance)
-#### Assignments
-- `POST /api/v1/assignments/` — Assign job to tech
-- `POST /api/v1/assignments/unassign` — Unassign a job
-- `POST /api/v1/assignments/reassign` — Reassign to different tech
-- `POST /api/v1/assignments/batch-assign` — Assign multiple jobs to one tech
-- `POST /api/v1/assignments/batch-unassign` — Unassign multiple jobs
-#### Routing
-- `POST /api/v1/routing/auto-route` — Auto-assign all pending jobs
-- `GET /api/v1/routing/best-tech/{job_id}` — Find best tech for a job
+Everything is a PostgREST RPC over the `api` schema. HTML fragments return a `text/html`
+domain type (send `Accept: text/html`); the rest return JSON.
+
+```bash
+curl -H 'Accept: text/html' http://localhost:8081/rpc/tech_list
+curl -H 'Accept: application/json' http://localhost:8081/rpc/map_markers
+curl -d 'p_job_id=1&p_tech_id=3' http://localhost:8081/rpc/assign
+```
+
+#### Read (HTML fragments)
+- `tech_list()` — technician grid
+- `job_table(p_status, p_job_type, p_tech_id, p_route)` — job grid, filtered
+- `dash_bar()` — status counts
+- `timeline(p_selected)` — per-tech SVG timeline
+- `personnel_window()`, `filter_window()`, `settings_window()` — floating windows
+- `search_window(p_q, p_date_from, p_date_to, p_job_id, p_tech_id, p_customer, p_status, p_job_type, p_route)`
+- `tech_detail(p_tech_id)`, `job_detail(p_job_id)` — detail windows
+- `sim_bar()` — simulation controls
+
+#### Read (JSON)
+- `map_markers()` — jobs, techs and route polylines for Leaflet
+- `qualified_techs(p_job_id)` — techs split by skill match, for the Assign-To menu
+
+#### Write
+- `assign(p_job_id, p_tech_id, p_override)` — CanDo checks, override modal, assignment
+- `unassign(p_job_id)`
+- `job_action(p_job_id, p_action)` — `start` / `complete` / `hold` / `cancel`, FSM-validated
+- `tech_set_status(p_tech_id, p_status)`
+- `auto_route(p_target_date)` — assign all pending jobs to the closest qualified tech
+
+#### Simulation
+- `sim_start(p_speed)` — reseed, pre-route, start the virtual day
+- `sim_pause()`, `sim_resume()`, `sim_stop()`, `sim_speed(p_speed)`
+- `sim_tick(p_wall_seconds)` — advance the clock and run the engine; called by pg_cron every second
+- `seed_demo()` — reset to a fresh demo day
+
+#### Internals (not called by the UI)
+`can_do`, `haversine`, `travel_time`, `sample_duration`, `what_if_duration`, `ml_assign`,
+`dispatch_tick`, `day_beats`, `on_shift`, `slot_minutes`, `sim_now`, `is_demo`,
+`html_escape`, `py_float`, `toast`.
 
 ## Change Log
 
 ### 0.0.9 (Latest)
-HTMX is now the only frontend. React archived. Tighter chrome + slot-aware sim.
-- **HTMX at root** — server-rendered Jinja2 dashboard mounted at `/`. All `/htmx/*` paths gone; fragments live under root. Vendored htmx / idiomorph / leaflet (no npm).
-- **React archived** — old SPA moved to `archive/frontend/` (gitignored, never built, never served). Dockerfile collapsed to single-stage python. Smaller image, no Vite/npm in build, no t3.micro OOM risk.
-- **Pre-route on demo start** — `Start Demo` reseeds and immediately auto-routes every today's job before the dispatch loop kicks off. Demo plays a fully-routed day.
-- **Sequential, slot-aware dispatch** — loop dispatches one job per tech per tick, ordered by `time_slot_start`. Tech idles at base (AVAILABLE) until `depart = slot_start − travel`, then EN_ROUTE → ON_JOB → AVAILABLE. Arrivals land inside the customer window; days fill the full shift instead of finishing by 10am.
-- **Override-modal flash fixed** — manual fetch handler parses the response and moves `#modal-host` + toasts into place properly (htmx OOB swaps don't fire on raw fetches).
-- **Column resize** — vanilla JS injects `<colgroup>` per `.grid`, adds 6px resize handles on each `<th>`, persists widths to localStorage by table key. Re-attaches on every `htmx:afterSwap`.
-- **CSS port** — `app.css` is a full lift of the React design tokens + components, adapted to HTMX class names. Mobile `@media (max-width: 768px)` makes floating windows + map fullscreen.
-- **SVG icons** — header buttons use the React-source SVGs (filter, personnel, search, settings, timeline, map, refresh, auto-route bolt). Bigger touch targets (34×34 icon, 30px min-height regular).
-- **Thicker splitters** — 9px with centered grip bar, accent on hover/drag. Jobs↔Timeline splitter hidden when the timeline pane is collapsed.
-- **Grid horizontal scroll** — `.grid { min-width: 720px }` so narrow panes get a horizontal scrollbar instead of column-shrunk-to-nothing.
-- **Hidden filter selects** — Jobs pane dropped its inline status/type/tech/route bar; dash-cell clicks drive a single hidden `[name='status']` input, Filter window covers multi-select.
-- **Cache-bust** — `app.css?v=<mtime>` query param so CSS edits land without manual hard-refresh after rebuild.
+
+**Postgres as a platform.** The FastAPI/Python backend is gone; the application now lives in
+the database. PL/pgSQL functions build the HTMX fragments and JSON, PostgREST serves them as
+RPC over a `text/html` domain handler, and nginx serves a static shell. Runtime stack is
+Postgres + PostgREST + nginx.
+
+- **Rendering in SQL** — all 12 fragment templates and the map JSON ported to PL/pgSQL,
+  each verified byte-identical (after whitespace normalization) to the FastAPI output.
+- **Write paths in SQL** — assign with the CanDo override modal, unassign, job status FSM,
+  technician status, and auto-route. Routing decisions match the Python router exactly.
+- **Sim engine in SQL** — the dispatch loop, MLStrategy scoring, scripted beats and the
+  virtual clock, driven by `api.sim_tick`. A full simulated day runs entirely in-database.
+- **Duration model** — the numpy log-normal sampler was reimplemented in SQL (hash to two
+  uniforms, Box-Muller). Values differ from numpy's by necessity; the sampler is verified by
+  determinism and by its mean tracking each technician's hidden `speed_factor`.
+- **Seeds as SQL** — demo data ships as `db/seeds/01_seed.sql` with dates relative to the
+  run date, so no Python is needed to build a demo database.
+- **No WebSocket** — the event socket was dropped; the console polls fragments on a 3s cycle.
+- **pg_cron clock** — the virtual clock ticks inside the database every second; no ticker
+  process. `api.sim_tick()` stays a plain function for Postgres hosts without pg_cron.
+- **Postgres renders the page** — `api.shell()` returns the console with its first fragments
+  inline; nginx proxies `/` to it and serves only static files. Console moved to port 8081.
+- **Standalone configs** — `deploy/nginx.conf` and `deploy/postgrest.conf` are the same files
+  the Docker bundle uses, ready for a raw (no-Docker) install.
 
 ### 0.0.8
 ML routing + investor-ready demo day
@@ -274,8 +325,9 @@ Initial commit
 - [x] Job evaluation (skill/route/time + distance)
 - [x] Override warning on assignment mismatch
 - [x] Automated dispatch (simulation engine with time-accelerated demo day)
-- [x] WebSocket real-time updates (backend broadcaster complete)
-- [x] Mobile responsive UI + touch drag-and-drop
+- [x] Live updates (3s fragment polling; the v0.0.8 WebSocket was retired)
+- [x] Mobile responsive UI
+- [ ] Touch drag-and-drop (not yet ported to the HTMX console)
 - [x] Frontend sim control bar (start/pause/resume/stop, speed selector, virtual clock)
 - [x] Overrun row highlighting (yellow/red at estimated/1.5× duration)
 - [x] ML routing strategy (embedded model — travel + predicted completion time)
@@ -285,7 +337,7 @@ Initial commit
 - [ ] Account system with role-based access
 - [ ] Column state persistence per user
 - [ ] Mobile technician PWA
-- [ ] Docker compose full stack
+- [x] Docker compose full stack
 - [x] Hosted live demo
 
 ## Contributing

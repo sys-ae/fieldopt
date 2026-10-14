@@ -30,15 +30,15 @@ returns "text/html" language sql stable as $$
 			|| ' data-job-number="' || api.html_escape(coalesce(nullif(j.job_number, ''), j.id::text)) || '"'
 			|| ' data-job-status="' || lower(j.status::text) || '"'
 			|| ' data-job-customer="' || api.html_escape(j.customer_name) || '">'
-			|| '<td class="num mono">' || j.id || '</td>'
-			|| '<td class="mono">' || coalesce(to_char(j.scheduled_date at time zone 'UTC', 'YYYY-MM-DD'), '—') || '</td>'
-			|| '<td><span class="pill pill--' || lower(j.status::text) || '">'
+			|| '<td class="num mono c-id">' || j.id || '</td>'
+			|| '<td class="mono c-date">' || coalesce(to_char(j.scheduled_date at time zone 'UTC', 'YYYY-MM-DD'), '—') || '</td>'
+			|| '<td class="c-status"><span class="pill pill--' || lower(j.status::text) || '">'
 				|| replace(j.status::text, '_', ' ') || '</span></td>'
-			|| '<td>' || lower(j.job_type::text) || '</td>'
-			|| '<td class="num mono pri pri--' || j.priority || '">' || j.priority || '</td>'
-			|| '<td>' || api.html_escape(j.customer_name) || '</td>'
-			|| '<td class="mono">' || coalesce(api.html_escape(nullif(j.route_criteria, '')), '—') || '</td>'
-			|| '<td class="addr">' || api.html_escape(j.service_address) || '</td>'
+			|| '<td class="c-type">' || lower(j.job_type::text) || '</td>'
+			|| '<td class="num mono c-pri pri pri--' || j.priority || '">' || j.priority || '</td>'
+			|| '<td class="c-cust">' || api.html_escape(j.customer_name) || '</td>'
+			|| '<td class="mono c-rtec">' || coalesce(api.html_escape(nullif(j.route_criteria, '')), '—') || '</td>'
+			|| '<td class="addr c-addr">' || api.html_escape(j.service_address) || '</td>'
 			|| '</tr>' as row_html
 		from jobs j, flags
 		where flags.anyc
@@ -64,35 +64,35 @@ returns "text/html" language sql stable as $$
 	)
 	select
 		'<form class="search-criteria"'
-		|| ' hx-get="/window/search" hx-target=".float-win[data-key=''search''] .float-win-body" hx-swap="innerHTML"'
+		|| ' hx-get="/rpc/search_window" hx-target=".float-win[data-key=''search''] .float-win-body" hx-swap="innerHTML"'
 		|| ' hx-trigger="submit, input changed delay:400ms from:input, change from:select">'
 		|| '<div class="cr-row">'
-		|| '<label>Job #<input type="text" name="job_id" value="' || api.html_escape(p_job_id) || '"></label>'
-		|| '<label>Customer<input type="text" name="customer" value="' || api.html_escape(p_customer) || '"></label>'
-		|| '<label>Address / Q<input type="text" name="q" value="' || api.html_escape(p_q) || '"></label>'
+		|| '<label>Job #<input type="text" name="p_job_id" value="' || api.html_escape(p_job_id) || '"></label>'
+		|| '<label>Customer<input type="text" name="p_customer" value="' || api.html_escape(p_customer) || '"></label>'
+		|| '<label>Address / Q<input type="text" name="p_q" value="' || api.html_escape(p_q) || '"></label>'
 		|| '</div>'
 		|| '<div class="cr-row">'
-		|| '<label>Date from<input type="date" name="date_from" value="' || api.html_escape(p_date_from) || '"></label>'
-		|| '<label>Date to<input type="date" name="date_to" value="' || api.html_escape(p_date_to) || '"></label>'
-		|| '<label>Status<select name="status"><option value="">Any</option>'
+		|| '<label>Date from<input type="date" name="p_date_from" value="' || api.html_escape(p_date_from) || '"></label>'
+		|| '<label>Date to<input type="date" name="p_date_to" value="' || api.html_escape(p_date_to) || '"></label>'
+		|| '<label>Status<select name="p_status"><option value="">Any</option>'
 		|| (select string_agg('<option value="' || v || '" '
 				|| case when p_status = v then 'selected' else '' end || '>' || v || '</option>', '' order by ord)
 			from unnest(enum_range(null::public.jobstatus)) with ordinality e(s, ord), lateral (select lower(s::text) v) lv)
 		|| '</select></label>'
 		|| '</div>'
 		|| '<div class="cr-row">'
-		|| '<label>Type<select name="job_type"><option value="">Any</option>'
+		|| '<label>Type<select name="p_job_type"><option value="">Any</option>'
 		|| (select string_agg('<option value="' || v || '" '
 				|| case when p_job_type = v then 'selected' else '' end || '>' || v || '</option>', '' order by ord)
 			from unnest(enum_range(null::public.jobtype)) with ordinality e(t, ord), lateral (select lower(t::text) v) lv)
 		|| '</select></label>'
-		|| '<label>Tech<select name="tech_id"><option value="">Any</option>'
+		|| '<label>Tech<select name="p_tech_id"><option value="">Any</option>'
 		|| coalesce((select string_agg('<option value="' || tk.id || '" '
 				|| case when p_tech_id = tk.id::text then 'selected' else '' end || '>'
 				|| api.html_escape(tk.name) || '</option>', '' order by tk.name)
 			from technicians tk), '')
 		|| '</select></label>'
-		|| '<label>Route<input type="text" name="route" value="' || api.html_escape(p_route) || '"></label>'
+		|| '<label>Route<input type="text" name="p_route" value="' || api.html_escape(p_route) || '"></label>'
 		|| '</div>'
 		|| '<div class="cr-actions">'
 		|| '<button class="btn" type="submit">Search</button>'
@@ -108,7 +108,7 @@ returns "text/html" language sql stable as $$
 		|| case
 			when agg.cnt > 0 then
 				'<table class="grid"><thead><tr><th>JOB ID</th><th>DATE</th><th>STATUS</th><th>TYPE</th>'
-				|| '<th>PRI</th><th>CUSTOMER</th><th>RTEC</th><th>ADDRESS</th></tr></thead><tbody>'
+				|| '<th>PRI</th><th>CUSTOMER</th><th class="c-rtec">RTEC</th><th class="c-addr">ADDRESS</th></tr></thead><tbody>'
 				|| agg.rows_html || '</tbody></table>'
 			when flags.anyc then '<div class="win-empty">No matches.</div>'
 			else '<div class="win-empty">Enter criteria above and click Search.<br>Searches across all dates (limit 200).</div>'

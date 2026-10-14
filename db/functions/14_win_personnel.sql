@@ -14,15 +14,15 @@ returns "text/html" language sql stable as $$
 				lower(coalesce(t.employee_id, '')) || ' ' || lower(t.name) || ' ' || t.id) || '"'
 			|| ' ondblclick="locateTech(' || t.id || ')"'
 			|| ' oncontextmenu="event.preventDefault(); showTechMenu(event, this)">'
-			|| '<td class="num mono">' || api.html_escape(coalesce(nullif(t.employee_id, ''), t.id::text)) || '</td>'
-			|| '<td>' || api.html_escape(t.name) || '</td>'
-			|| '<td><span class="pill pill--' || lower(t.status::text) || '">'
+			|| '<td class="num mono c-id">' || api.html_escape(coalesce(nullif(t.employee_id, ''), t.id::text)) || '</td>'
+			|| '<td class="c-name">' || api.html_escape(t.name) || '</td>'
+			|| '<td class="c-status"><span class="pill pill--' || lower(t.status::text) || '">'
 				|| replace(t.status::text, '_', ' ') || '</span></td>'
-			|| '<td class="mono">' || coalesce(t.shift_start, '') || '–' || coalesce(t.shift_end, '') || '</td>'
-			|| '<td class="mono muted" style="max-width:180px; overflow:hidden; text-overflow:ellipsis;">'
+			|| '<td class="mono c-shift">' || coalesce(t.shift_start, '') || '–' || coalesce(t.shift_end, '') || '</td>'
+			|| '<td class="mono muted c-skills" style="max-width:180px; overflow:hidden; text-overflow:ellipsis;">'
 				|| coalesce((select string_agg(api.html_escape(value), ', ')
 					from jsonb_array_elements_text(t.skills) value), '') || '</td>'
-			|| '<td class="mono muted" style="max-width:180px; overflow:hidden; text-overflow:ellipsis;">'
+			|| '<td class="mono muted c-routes" style="max-width:180px; overflow:hidden; text-overflow:ellipsis;">'
 				|| coalesce((select string_agg(api.html_escape(value), ', ')
 					from jsonb_array_elements_text(t.assigned_routes) value), '') || '</td>'
 			|| '</tr>' as row_html
@@ -36,7 +36,7 @@ returns "text/html" language sql stable as $$
 		|| '<span class="muted mono" id="personnel-count">' || c.cnt || ' / ' || c.cnt || '</span>'
 		|| '</div>'
 		|| '<div class="win-body"><table class="grid" id="personnel-table"><thead><tr>'
-		|| '<th>ID</th><th>NAME</th><th>STATUS</th><th>SHIFT</th><th>SKILLS</th><th>ROUTES</th>'
+		|| '<th>ID</th><th>NAME</th><th>STATUS</th><th>SHIFT</th><th class="c-skills">SKILLS</th><th class="c-routes">ROUTES</th>'
 		|| '</tr></thead><tbody>'
 		|| coalesce((select string_agg(row_html, '' order by name) from rows), '')
 		|| '</tbody></table></div>'

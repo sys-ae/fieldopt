@@ -1,0 +1,19 @@
+# Postgres with pg_cron, so the simulation clock is driven from inside the database
+# instead of by an external ticker. Built from source: Alpine has no postgresql15-dev,
+# but the official image ships its own headers and pg_config, which PGXS can use.
+# with_llvm=no skips JIT bitcode, which pg_cron does not need.
+FROM postgres:15-alpine AS build
+RUN apk add --no-cache build-base git openssl-dev
+RUN git clone --depth 1 --branch v1.6.4 https://github.com/citusdata/pg_cron.git /tmp/pg_cron \
+	&& cd /tmp/pg_cron \
+	&& make USE_PGXS=1 with_llvm=no \
+	&& make USE_PGXS=1 with_llvm=no install
+
+FROM postgres:15-alpine
+COPY --from=build /usr/local/lib/postgresql/pg_cron.so /usr/local/lib/postgresql/
+COPY --from=build /usr/local/share/postgresql/extension/pg_cron* /usr/local/share/postgresql/extension/
+
+# A fresh data volume installs the application and seeds itself — deploying is then just
+# `docker compose up -d --build`, with no manual pg-apply/pg-seed step.
+COPY db/ /opt/fieldopt/
+COPY deploy/initdb.sh /docker-entrypoint-initdb.d/10-fieldopt.sh

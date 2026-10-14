@@ -1,0 +1,5 @@
+# Static shell + reverse proxy. Files are COPY'd rather than bind-mounted so the stack
+# also runs from an iCloud-backed checkout (macOS blocks Docker bind mounts there).
+FROM nginx:alpine
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY web/ /usr/share/nginx/html/

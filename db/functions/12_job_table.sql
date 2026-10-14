@@ -41,16 +41,16 @@ returns "text/html" language sql stable as $$
 			|| ' ondblclick="openWindow(''job/' || j.id || ''', ''Job #'
 				|| api.html_escape(coalesce(nullif(j.job_number, ''), j.id::text)) || ''')"'
 			|| ' oncontextmenu="event.preventDefault(); showJobMenu(event, this)">'
-			|| '<td class="num mono">' || j.id || '</td>'
-			|| '<td>' || lower(j.job_type::text) || '</td>'
-			|| '<td><span class="pill pill--' || lower(j.status::text) || '">'
+			|| '<td class="num mono c-id">' || j.id || '</td>'
+			|| '<td class="c-type">' || lower(j.job_type::text) || '</td>'
+			|| '<td class="c-status"><span class="pill pill--' || lower(j.status::text) || '">'
 				|| replace(j.status::text, '_', ' ') || '</span></td>'
-			|| '<td>' || case when a.id is null then '—' else api.html_escape(t.name) end || '</td>'
-			|| '<td class="num mono pri pri--' || j.priority || '">' || j.priority || '</td>'
-			|| '<td>' || api.html_escape(j.customer_name) || '</td>'
-			|| '<td class="mono">' || coalesce(api.html_escape(nullif(j.route_criteria, '')), '—') || '</td>'
-			|| '<td class="addr">' || api.html_escape(j.service_address) || '</td>'
-			|| '<td class="mono">' || coalesce(nullif(j.time_slot_start, ''), '—')
+			|| '<td class="c-tech">' || case when a.id is null then '—' else api.html_escape(t.name) end || '</td>'
+			|| '<td class="num mono c-pri pri pri--' || j.priority || '">' || j.priority || '</td>'
+			|| '<td class="c-cust">' || api.html_escape(j.customer_name) || '</td>'
+			|| '<td class="mono c-rtec">' || coalesce(api.html_escape(nullif(j.route_criteria, '')), '—') || '</td>'
+			|| '<td class="addr c-addr">' || api.html_escape(j.service_address) || '</td>'
+			|| '<td class="mono c-slot">' || coalesce(nullif(j.time_slot_start, ''), '—')
 				|| case when nullif(j.time_slot_end, '') is not null
 				        then '–' || j.time_slot_end else '' end || '</td>'
 			|| '</tr>' as row_html
@@ -73,7 +73,7 @@ returns "text/html" language sql stable as $$
 	select
 		'<table class="grid job-grid"><thead><tr>'
 		|| '<th class="num">JOB ID</th><th>TYPE</th><th>STATUS</th><th>TECH</th>'
-		|| '<th class="num">PRI</th><th>CUSTOMER</th><th>RTEC</th><th>ADDRESS</th><th>SLOT</th>'
+		|| '<th class="num">PRI</th><th>CUSTOMER</th><th class="c-rtec">RTEC</th><th class="c-addr">ADDRESS</th><th>SLOT</th>'
 		|| '</tr></thead><tbody>'
 		|| coalesce(
 			string_agg(row_html, '' order by ord_slot asc nulls first, ord_id),

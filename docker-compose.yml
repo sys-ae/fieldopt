@@ -1,14 +1,21 @@
-# FieldOpt — single-container app (built SPA + FastAPI) + Postgres.
+# FieldOpt — full-Postgres stack. No application server and no external scheduler:
+# Postgres renders the console (PostgREST exposes it as RPC, nginx proxies), and pg_cron
+# drives the simulation clock from inside the database.
 #
-# Run regular:  make up        (or: docker compose up --build)
-# Run demo:     make demo      (or: IS_DEMO=true docker compose up --build)
+# Run:   make up      (then: make pg-apply, make pg-seed)
+# Demo:  make demo    (flips the app.is_demo flag)
 #
-# Browse: http://localhost:8080
+# Browse: http://localhost:8081
 
 services:
   postgres:
-    image: postgres:15-alpine
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.postgres
+    image: fieldopt-postgres:pgcron
     container_name: fieldopt-postgres
+    command: >
+      postgres -c shared_preload_libraries=pg_cron -c cron.database_name=fieldopt
     environment:
       POSTGRES_USER: fieldopt
       POSTGRES_PASSWORD: fieldopt
@@ -21,24 +28,24 @@ services:
       timeout: 5s
       retries: 5
 
-  app:
+  postgrest:
     build:
       context: .
-      dockerfile: Dockerfile
-    container_name: fieldopt-app
-    environment:
-      DATABASE_URL: postgresql+asyncpg://fieldopt:fieldopt@postgres:5432/fieldopt
-      IS_DEMO: ${IS_DEMO:-false}
-      API_HOST: 0.0.0.0
-      API_PORT: "8000"
-      API_RELOAD: "false"
-      CORS_ORIGINS: '["*"]'
-      LOG_LEVEL: INFO
-    ports:
-      - "8080:8000"
+      dockerfile: deploy/Dockerfile.postgrest
+    container_name: fieldopt-postgrest
     depends_on:
       postgres:
         condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.web
+    container_name: fieldopt-web
+    ports:
+      - "8081:80"
+    depends_on:
+      - postgrest
 
 volumes:
   postgres_data:

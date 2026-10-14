@@ -1,4 +1,5 @@
--- Port of POST /assign (backend/api/routes/htmx.py:260) — the assignment write path.
+-- Assignment write path (was POST /assign in the retired FastAPI app).
+-- Emits /rpc/ URLs and p_-prefixed field names: PostgREST is the only server now.
 -- SLICE 1 (this file, current): candoo skill/route checks + override modal (deterministic,
 --   byte-verifiable) AND the mutation (reassign/create + toast + HX-Trigger refreshAll).
 -- Deferred (Phase 4, flagged): demo-lock (needs sim clock mode/paused) — skipped = real mode,
@@ -57,9 +58,9 @@ begin
 				|| case when skill_pass then '✓' else '✗' end || ' ' || api.html_escape(skill_label) || '</li>'
 			|| '<li class="' || case when route_pass then 'ok' else 'fail' end || '">'
 				|| case when route_pass then '✓' else '✗' end || ' ' || api.html_escape(route_label) || '</li>'
-			|| $html$</ul><div class="modal-actions"><button class="btn" onclick="document.getElementById('modal-host').innerHTML=''">Cancel</button><form hx-post="/assign" hx-target="#toast-host" hx-swap="innerHTML" style="display:inline"><input type="hidden" name="job_id" value="$html$
-			|| j.id || $html$"><input type="hidden" name="tech_id" value="$html$ || t.id
-			|| $html$"><input type="hidden" name="override" value="1"><button class="btn btn--stop" onclick="document.getElementById('modal-host').innerHTML=''">Override</button></form></div></div></div></div>$html$;
+			|| $html$</ul><div class="modal-actions"><button class="btn" onclick="document.getElementById('modal-host').innerHTML=''">Cancel</button><form hx-post="/rpc/assign" hx-target="#toast-host" hx-swap="innerHTML" style="display:inline"><input type="hidden" name="p_job_id" value="$html$
+			|| j.id || $html$"><input type="hidden" name="p_tech_id" value="$html$ || t.id
+			|| $html$"><input type="hidden" name="p_override" value="1"><button class="btn btn--stop" onclick="document.getElementById('modal-host').innerHTML=''">Override</button></form></div></div></div></div>$html$;
 	end if;
 
 	-- ── Mutation ────────────────────────────────────────────────────────────

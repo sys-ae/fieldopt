@@ -6,7 +6,7 @@ returns "text/html" language sql stable as $$
 	select
 		'<table class="grid tech-grid"><thead><tr>'
 		|| '<th class="num">TECH ID</th><th>NAME</th><th>STATUS</th>'
-		|| '<th>SHIFT</th><th class="num">JOBS A:C</th><th>ROUTES</th>'
+		|| '<th>SHIFT</th><th class="num">JOBS A:C</th><th class="c-routes">ROUTES</th>'
 		|| '</tr></thead><tbody>'
 		|| coalesce(
 			string_agg(row_html, '' order by name),
@@ -21,13 +21,13 @@ returns "text/html" language sql stable as $$
 			|| ' data-tech-status="' || lower(t.status::text) || '"'
 			|| ' ondblclick="openWindow(''tech/' || t.id || ''', ''' || api.html_escape(t.name) || ''')"'
 			|| ' oncontextmenu="event.preventDefault(); showTechMenu(event, this)">'
-			|| '<td class="num mono">' || api.html_escape(coalesce(t.employee_id, t.id::text)) || '</td>'
-			|| '<td>' || api.html_escape(t.name) || '</td>'
-			|| '<td><span class="pill pill--' || lower(t.status::text) || '">'
+			|| '<td class="num mono c-id">' || api.html_escape(coalesce(t.employee_id, t.id::text)) || '</td>'
+			|| '<td class="c-name">' || api.html_escape(t.name) || '</td>'
+			|| '<td class="c-status"><span class="pill pill--' || lower(t.status::text) || '">'
 				|| replace(t.status::text, '_', ' ') || '</span></td>'
-			|| '<td class="mono">' || coalesce(t.shift_start, '') || '–' || coalesce(t.shift_end, '') || '</td>'
-			|| '<td class="num mono">' || cnt.assigned || ':' || cnt.completed || '</td>'
-			|| '<td class="routes mono">' || coalesce(
+			|| '<td class="mono c-shift">' || coalesce(t.shift_start, '') || '–' || coalesce(t.shift_end, '') || '</td>'
+			|| '<td class="num mono c-jobs">' || cnt.assigned || ':' || cnt.completed || '</td>'
+			|| '<td class="routes mono c-routes">' || coalesce(
 				(select string_agg(api.html_escape(value), ', ')
 				 from jsonb_array_elements_text(t.assigned_routes)), '') || '</td>'
 			|| '</tr>' as row_html
